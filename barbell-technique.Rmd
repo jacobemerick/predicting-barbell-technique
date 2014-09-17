@@ -1,0 +1,115 @@
+---
+title:   HAR - Predicting Barbell Techniques
+author:  Jacob Emerick
+output:  html_document
+---
+
+## Introduction
+Using devices to track personal movements allows people to track large quantities of how much of a particular activity they perform but not necessarily how well they do it. Using a dandy [set of weight lifting data](http://groupware.les.inf.puc-rio.br/har) let's attempt to create a model that can determine correct vs incorrect barbell lefts.
+
+## Data Loading
+We'll need caret for just about everything
+
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+```
+
+The data being used for this analysis can be found online and is already split into two sets: one for training and one for testing. We'll be using the testing for a future reason (part 2 of the assignment), so we don't care about it for now.
+
+```{r, cache=TRUE, message=FALSE}
+# download and load up the data
+download.file(
+    'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv',
+    method = 'curl',
+    destfile = 'barbell-training.csv'
+)
+barbellData <- read.csv(
+    'barbell-training.csv',
+    na.strings = c('NA', '')
+)
+
+# split up our training set for train and test
+set.seed(108)
+inTrain <- createDataPartition(
+    barbellData$classe,
+    p = .7,
+    list = FALSE
+)
+training <- barbellData[inTrain,]
+testing <- barbellData[-inTrain,]
+dim(training)[1]; dim(testing)[1]
+```
+
+Now that the data is loaded in, how many columns are we looking at?
+
+```{r}
+dim(training)[2]
+```
+
+Wow. That's a lot of columns. We don't want to use that many for our model. Let's try to cut out the variables that don't appear to change much over the set. We'll be a bit draconian here, since there are so many possible predictors.
+
+```{r}
+# drop the 'X' column - that is only the row number
+training <- training[,-1]
+testing <- testing[,-1]
+
+# drop all columns with significant numbers of 'na'
+naColumns <- sapply(training, function(col) {
+    sum(is.na(col)) > (length(col) * .5);
+});
+naColumns <- as.logical(naColumns)
+training <- training[,!naColumns]
+testing <- testing[,!naColumns]
+
+# drop columns that don't seem to have much variability
+unvariedColumns <- nearZeroVar(training, freqCut = 8)
+training <- training[,-unvariedColumns]
+testing <- testing[,-unvariedColumns]
+dim(training)[2]
+```
+
+That's a bit better. 58 possible predictors is a fine amount, especially if it means we won't have to deal with a bunch of NA values. It's time to try to fit a model.
+
+## Modeling
+For the regression model I decided to go with random forests. This was partially due to the instructor praising the merits of random forests and also because of the warnings on memory usage. I was curious how my laptop could handle random forests. It was an uncomfortablely long wait to process.
+
+```{r, cache=TRUE, message=FALSE}
+fit <- train(classe ~ ., method = 'rf', data = training)
+fit$finalModel
+```
+
+Hey, this looks good. The in-sample error is around .08% based on the final model. Let's go ahead and throw this model against our testing set. I'm feeling confident about this and think that our out-of-sample error will be less than 1%, meaning the model should have an accuracy of at least 99%.
+
+```{r}
+prediction <- predict(fit, newdata = testing)
+confusion <- confusionMatrix(prediction, testing$classe)
+confusion$table
+confusion$overall
+```
+
+Not only does that table look great, but our accuracy is at 99.88%, This model looks like a winner. Random forests, you work.
+
+## Predicting
+On to the second part of the assignment. Let's load up twenty observations from the 'testing' section of data.
+
+```{r, cache=TRUE, message=FALSE}
+# download and load up the data
+download.file(
+    'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv',
+    method = 'curl',
+    destfile = 'barbell-testing.csv'
+)
+barbellTestData <- read.csv(
+    'barbell-testing.csv',
+    na.strings = c('NA', '')
+)
+```
+
+Now, let's throw this data at our model and see what comes out.
+
+```{r}
+prediction_result <- predict(fit, barbellTestData)
+prediction_result
+```
+
+This looks good. Spoiler: it is good. Submission part of the assignment passed.
